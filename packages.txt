@@ -1,0 +1,2 @@
+# Empty for now - add system packages if needed
+# Example: ffmpeg, libsm6, etc.
