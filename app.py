@@ -24,26 +24,23 @@ import hashlib
 warnings.filterwarnings("ignore")
 
 import os
-import requests
+import gdown
 import zipfile
-from io import BytesIO
 
-MODELS_ZIP_PATH = "models/models.zip"
 MODELS_DIR = "models"
-DRIVE_URL = "https://drive.google.com/uc?export=download&id=1HEUr4IDF-rF2pZoKeD2MWR9xAupMYKxy"
+MODELS_ZIP_PATH = os.path.join(MODELS_DIR, "models.zip")
+GDRIVE_FILE_ID = "1HEUr4IDF-rF2pZoKeD2MWR9xAupMYKxy"
 
 # Create folder if missing
 os.makedirs(MODELS_DIR, exist_ok=True)
 
-# Download ZIP if missing
+# Download using gdown if missing
 if not os.path.exists(MODELS_ZIP_PATH):
-    print("Downloading models.zip from Google Drive...")
-    r = requests.get(DRIVE_URL)
-    with open(MODELS_ZIP_PATH, "wb") as f:
-        f.write(r.content)
+    print("Downloading models.zip from Google Drive via gdown...")
+    gdown.download(f"https://drive.google.com/uc?id={GDRIVE_FILE_ID}", MODELS_ZIP_PATH, quiet=False)
     print("Download complete!")
 
-# Unzip files if they haven't been extracted yet
+# Extract ZIP
 with zipfile.ZipFile(MODELS_ZIP_PATH, "r") as zip_ref:
     zip_ref.extractall(MODELS_DIR)
     print("Models extracted!")
