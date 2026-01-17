@@ -23,27 +23,29 @@ import hashlib
 
 warnings.filterwarnings("ignore")
 
-import os
-import requests
-import zipfile
+import os, requests, zipfile
 
-MODELS_ZIP_PATH = "models.zip"
+MODELS_ZIP_PATH = "models/models.zip"
 MODELS_DIR = "models"
-DROPBOX_URL = "https://www.dropbox.com/scl/fi/rkqfeb0gyfnqdelzn12p3/models.zip?rlkey=5gtgrwvwww30m4bma5hl18ym4&st=i6hj0nui&dl=1"
+RELEASE_URL = "https://github.com/ashhad25/researchai-assistant/releases/download/v2.0/models.zip"
 
+# Create folder if missing
 os.makedirs(MODELS_DIR, exist_ok=True)
 
+# Download ZIP if missing
 if not os.path.exists(MODELS_ZIP_PATH):
-    print("Downloading models.zip from Dropbox...")
-    r = requests.get(DROPBOX_URL)
+    print("Downloading models.zip from GitHub Release...")
+    r = requests.get(RELEASE_URL, stream=True)
     with open(MODELS_ZIP_PATH, "wb") as f:
-        f.write(r.content)
+        for chunk in r.iter_content(chunk_size=8192):
+            f.write(chunk)
     print("Download complete!")
 
-# Extract ZIP
+# Unzip files if they haven't been extracted yet
 with zipfile.ZipFile(MODELS_ZIP_PATH, "r") as zip_ref:
     zip_ref.extractall(MODELS_DIR)
-print("Models extracted!")
+    print("Models extracted!")
+
 
 
 # =================== STREAMLIT CONFIG ===================
