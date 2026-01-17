@@ -29,7 +29,7 @@ import zipfile
 
 MODELS_ZIP_PATH = "models.zip"
 MODELS_DIR = "models"
-DROPBOX_URL = "https://www.dropbox.com/scl/fi/rkqfeb0gyfnqdelzn12p3/models.zip?rlkey=5gtgrwvwww30m4bma5hl18ym4&st=prxwft8k&dl=1"
+DROPBOX_URL = "https://www.dropbox.com/scl/fi/rkqfeb0gyfnqdelzn12p3/models.zip?rlkey=5gtgrwvwww30m4bma5hl18ym4&st=i6hj0nui&dl=1"
 
 os.makedirs(MODELS_DIR, exist_ok=True)
 
