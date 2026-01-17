@@ -24,26 +24,26 @@ import hashlib
 warnings.filterwarnings("ignore")
 
 import os
-import gdown
+import requests
 import zipfile
 
+MODELS_ZIP_PATH = "models.zip"
 MODELS_DIR = "models"
-MODELS_ZIP_PATH = os.path.join(MODELS_DIR, "models.zip")
-GDRIVE_FILE_ID = "1HEUr4IDF-rF2pZoKeD2MWR9xAupMYKxy"
+DROPBOX_URL = "https://www.dropbox.com/scl/fi/rkqfeb0gyfnqdelzn12p3/models.zip?rlkey=5gtgrwvwww30m4bma5hl18ym4&st=prxwft8k&dl=1"
 
-# Create folder if missing
 os.makedirs(MODELS_DIR, exist_ok=True)
 
-# Download using gdown if missing
 if not os.path.exists(MODELS_ZIP_PATH):
-    print("Downloading models.zip from Google Drive via gdown...")
-    gdown.download(f"https://drive.google.com/uc?id={GDRIVE_FILE_ID}", MODELS_ZIP_PATH, quiet=False)
+    print("Downloading models.zip from Dropbox...")
+    r = requests.get(DROPBOX_URL)
+    with open(MODELS_ZIP_PATH, "wb") as f:
+        f.write(r.content)
     print("Download complete!")
 
 # Extract ZIP
 with zipfile.ZipFile(MODELS_ZIP_PATH, "r") as zip_ref:
     zip_ref.extractall(MODELS_DIR)
-    print("Models extracted!")
+print("Models extracted!")
 
 
 # =================== STREAMLIT CONFIG ===================
