@@ -23,6 +23,32 @@ import hashlib
 
 warnings.filterwarnings("ignore")
 
+import os
+import requests
+import zipfile
+from io import BytesIO
+
+MODELS_ZIP_PATH = "models/models.zip"
+MODELS_DIR = "models"
+DRIVE_URL = "https://drive.google.com/uc?export=download&id=1HEUr4IDF-rF2pZoKeD2MWR9xAupMYKxy"
+
+# Create folder if missing
+os.makedirs(MODELS_DIR, exist_ok=True)
+
+# Download ZIP if missing
+if not os.path.exists(MODELS_ZIP_PATH):
+    print("Downloading models.zip from Google Drive...")
+    r = requests.get(DRIVE_URL)
+    with open(MODELS_ZIP_PATH, "wb") as f:
+        f.write(r.content)
+    print("Download complete!")
+
+# Unzip files if they haven't been extracted yet
+with zipfile.ZipFile(MODELS_ZIP_PATH, "r") as zip_ref:
+    zip_ref.extractall(MODELS_DIR)
+    print("Models extracted!")
+
+
 # =================== STREAMLIT CONFIG ===================
 st.set_page_config(
     page_title="Research Paper Assistant",
