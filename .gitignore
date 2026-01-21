@@ -11,6 +11,7 @@ ENV/
 
 # Models (too large for Git - handle separately)
 models/*.h5
+models/*.zip
 models/*.pkl
 models/*.json
 
@@ -27,7 +28,7 @@ Thumbs.db
 
 # Jupyter
 .ipynb_checkpoints/
-notebooks/.ipynb_checkpoints/
+notebooks/
 
 # Streamlit
 .streamlit/secrets.toml
