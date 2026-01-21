@@ -23,31 +23,6 @@ import hashlib
 
 warnings.filterwarnings("ignore")
 
-import os, requests, zipfile
-
-MODELS_ZIP_PATH = "models/models.zip"
-MODELS_DIR = "models"
-RELEASE_URL = "https://github.com/ashhad25/researchai-assistant/releases/download/v2.0/models.zip"
-
-# Create folder if missing
-os.makedirs(MODELS_DIR, exist_ok=True)
-
-# Download ZIP if missing
-if not os.path.exists(MODELS_ZIP_PATH):
-    print("Downloading models.zip from GitHub Release...")
-    r = requests.get(RELEASE_URL, stream=True)
-    with open(MODELS_ZIP_PATH, "wb") as f:
-        for chunk in r.iter_content(chunk_size=8192):
-            f.write(chunk)
-    print("Download complete!")
-
-# Unzip files if they haven't been extracted yet
-with zipfile.ZipFile(MODELS_ZIP_PATH, "r") as zip_ref:
-    zip_ref.extractall(MODELS_DIR)
-    print("Models extracted!")
-
-
-
 # =================== STREAMLIT CONFIG ===================
 st.set_page_config(
     page_title="Research Paper Assistant",
@@ -84,6 +59,20 @@ st.markdown("""
         border-radius: 12px;
         border-left: 5px solid #667eea;
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        transition: all 0.3s ease;
+    }
+    .recommendation-box:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .recommendation-box a {
+        text-decoration: none;
+        color: #2d3748;
+        transition: color 0.2s ease;
+    }
+    .recommendation-box a:hover {
+        color: #667eea;
+        text-decoration: underline;
     }
     .category-badge {
         background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
@@ -109,191 +98,190 @@ st.markdown("""
 # ============================================================================
 @st.cache_resource(show_spinner=False)
 def load_models():
-    """Load recommendation and classification models"""
     try:
         import torch
-        torch.set_num_threads(1)
-        torch.set_num_interop_threads(1)
-
         from sentence_transformers import SentenceTransformer
+        from tensorflow import keras
+        import tensorflow as tf
 
-        # Load recommendation model components
-        with open("models/embeddings.pkl", "rb") as f:
-            embeddings = pickle.load(f)
-        with open("models/sentences.pkl", "rb") as f:
-            sentences = pickle.load(f)
+        torch.set_num_threads(1)
 
-        rec_model = SentenceTransformer(
-            "all-MiniLM-L6-v2",
-            device="cpu"
+        # ---------- Recommendation ----------
+        embeddings = pickle.load(open("models/embeddings.pkl", "rb"))
+        sentences = pickle.load(open("models/sentences.pkl", "rb"))
+
+        rec_model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+
+        # ---------- Classification ----------
+        loaded_model = keras.models.load_model("models/model.h5", compile=False)
+
+        # Load label vocabulary
+        label_vocab = pickle.load(open("models/label_vocab.pkl", "rb"))
+        
+        # Load text vectorizer vocab
+        with open("models/text_vectorizer_vocab.pkl", "rb") as f:
+            vectorizer_vocab = pickle.load(f)
+        
+        # Recreate text vectorizer manually (avoid config issues)
+        from tensorflow.keras.layers import TextVectorization
+        text_vectorizer = TextVectorization(
+            max_tokens=159077,
+            output_mode="multi_hot"
+        )
+        # Adapt using the loaded vocabulary
+        text_vectorizer.set_vocabulary(vectorizer_vocab)
+        
+        # Get model input size - check the model's first layer input shape
+        # The Sequential model's first Dense layer expects a specific input size
+        try:
+            # Try to get from model config
+            model_input_size = loaded_model.layers[0].input_shape[-1]
+        except:
+            # Fallback: use vocab size
+            model_input_size = len(vectorizer_vocab)
+
+        return (
+            embeddings,
+            sentences,
+            rec_model,
+            loaded_model,
+            text_vectorizer,
+            label_vocab,
+            model_input_size,
         )
 
-        # Load classification model components
-        from tensorflow import keras
-        from tensorflow.keras.layers import TextVectorization
-        import tensorflow as tf
-        
-        loaded_model = keras.models.load_model("models/model.h5", compile=False)
-        
-        with open("models/vocab.pkl", "rb") as f:
-            loaded_vocab = pickle.load(f)
-        with open("models/idf_weights.pkl", "rb") as f:
-            loaded_idf_weights = pickle.load(f)
-        with open("models/text_vectorizer_config.pkl", "rb") as f:
-            vectorizer_config = pickle.load(f)
-
-        # Clean config for compatibility
-        for key in ["batch_input_shape", "dtype", "name", "trainable", "ragged"]:
-            vectorizer_config.pop(key, None)
-
-        # Recreate text vectorizer
-        text_vectorizer = TextVectorization.from_config(vectorizer_config)
-        text_vectorizer.set_vocabulary(loaded_vocab, idf_weights=loaded_idf_weights)
-        
-        # Get model input size from the model's input
-        # Try multiple methods to get input size
-        try:
-            model_input_size = loaded_model.input_shape[1]
-        except:
-            try:
-                model_input_size = loaded_model.layers[0].input_shape[1]
-            except:
-                # Fallback: infer from vectorizer vocab size
-                model_input_size = len(loaded_vocab)
-        
-        return (embeddings, sentences, rec_model, loaded_model, 
-                text_vectorizer, loaded_vocab, model_input_size)
-
     except Exception as e:
-        st.error(f"❌ Model loading failed: {str(e)}")
+        st.error(f"❌ Model loading failed: {e}")
         import traceback
-        st.code(traceback.format_exc())
+        st.error(traceback.format_exc())
         st.stop()
 
 with st.spinner("🔄 Loading AI models..."):
-    (embeddings, sentences, rec_model, loaded_model, 
-     text_vectorizer, loaded_vocab, model_input_size) = load_models()
+    (
+        embeddings,
+        sentences,
+        rec_model,
+        loaded_model,
+        text_vectorizer,
+        label_vocab,
+        model_input_size,
+    ) = load_models()
 
 # ============================================================================
-# SESSION STATE
-# ============================================================================
-for k in ["last_input_hash", "recommendations", "predictions"]:
-    st.session_state.setdefault(k, None)
-
-# ============================================================================
-# HELPER FUNCTIONS
+# HELPERS
 # ============================================================================
 def recommendation(text):
-    """Find similar papers using semantic similarity - FIXED VERSION"""
     if not text or len(text.strip()) < 3:
         return []
 
-    try:
-        import torch
-        from sentence_transformers import util
+    import torch
+    from sentence_transformers import util
 
-        # Encode the input text
-        input_embedding = rec_model.encode(text)
-        
-        # Ensure embeddings is a numpy array or tensor
-        if isinstance(embeddings, np.ndarray):
-            embeddings_tensor = torch.tensor(embeddings)
-        else:
-            embeddings_tensor = embeddings
-        
-        # Calculate cosine similarity
-        cosine_scores = util.cos_sim(embeddings_tensor, input_embedding)
-        
-        # FIXED: Flatten and ensure we don't ask for more than available
-        cosine_scores_flat = cosine_scores.flatten()
-        k = min(5, len(cosine_scores_flat))
-        
-        if k == 0:
-            return []
-        
-        # Get top k similar papers
-        top_results = torch.topk(cosine_scores_flat, k=k, sorted=True)
-        
-        # Extract paper titles
-        papers_list = []
-        for idx in top_results.indices:
-            idx_val = idx.item()
-            if idx_val < len(sentences):
-                papers_list.append(sentences[idx_val])
-        
-        return papers_list
+    query = rec_model.encode(text, convert_to_tensor=True)
+    emb = torch.tensor(embeddings)
 
-    except Exception as e:
-        st.error(f"❌ Recommendation error: {str(e)}")
-        import traceback
-        st.code(traceback.format_exc())
-        return []
+    scores = util.cos_sim(emb, query).squeeze()
+    k = min(5, len(scores))
 
-def invert_multi_hot(encoded_labels):
-    """Convert multi-hot encoded predictions to category names"""
-    hot_indices = np.argwhere(encoded_labels == 1.0)[..., 0]
-    categories = np.take(loaded_vocab, hot_indices)
-    # Filter out special tokens
-    categories = [cat for cat in categories if cat not in ['[UNK]', '', ' ']]
-    return categories
+    top = torch.topk(scores, k).indices.tolist()
+    return [sentences[i] for i in top]
+
+
+def invert_multi_hot(prob_vector, threshold=0.3):
+    """Convert probability vector to category labels"""
+    categories = [label_vocab[i] for i, p in enumerate(prob_vector) if p >= threshold]
+    # Clean up category names - remove prefixes for better display
+    cleaned_categories = []
+    for cat in categories:
+        # Remove common prefixes like 'cs.', 'stat.', 'eess.', 'math.', 'q-bio.', 'physics.', 'quant-', 'cond-mat.'
+        cleaned = cat
+        prefixes = ['cs.', 'stat.', 'eess.', 'math.', 'q-bio.', 'physics.', 'quant-', 'cond-mat.', 'q-fin.', 'econ.', 'astro-ph.', 'hep-', 'nlin.']
+        for prefix in prefixes:
+            if cleaned.startswith(prefix):
+                cleaned = cleaned[len(prefix):]
+                break
+        cleaned_categories.append(cleaned)
+    return cleaned_categories
+
 
 def pad_vector(vector, target_size):
-    """Pad or truncate vector to match model input size"""
+    """Pads or truncates the vector to match model input size."""
     import tensorflow as tf
     
     current_size = vector.shape[1]
+    
     if current_size < target_size:
-        padding = tf.zeros((vector.shape[0], target_size - current_size), dtype=vector.dtype)
+        padding = tf.zeros((vector.shape[0], target_size - current_size), dtype=tf.float32)
         vector = tf.concat([vector, padding], axis=1)
     elif current_size > target_size:
         vector = vector[:, :target_size]
+    
     return vector
 
-def predict_category(abstract):
-    """Predict subject categories from abstract"""
-    if not abstract or len(abstract.strip()) < 10:
-        return []
-    
-    try:
-        # Vectorize abstract
-        vectorized = text_vectorizer([abstract])
-        
-        # Pad to model input size
-        vectorized_padded = pad_vector(vectorized, model_input_size)
-        
-        # Get predictions
-        predictions = loaded_model.predict(vectorized_padded, verbose=0)
-        
-        # Apply threshold
-        binary_predictions = (predictions > 0.5).astype(int)[0]
-        
-        # Convert to category names
-        predicted_categories = invert_multi_hot(binary_predictions)
-        
-        return list(set(predicted_categories)) if predicted_categories else []
-        
-    except Exception as e:
-        st.error(f"❌ Prediction error: {str(e)}")
-        import traceback
-        st.code(traceback.format_exc())
+
+def predict_category(abstract, threshold=0.3):
+    """Predict subject categories for a given abstract"""
+    if not abstract or len(abstract.strip()) < 20:
         return []
 
+    import tensorflow as tf
+
+    try:
+        # Step 1: Vectorize abstract using the loaded text vectorizer
+        # This produces a multi-hot vector of shape (1, vocab_size)
+        vectorized = text_vectorizer([abstract])
+        
+        # Step 2: Ensure it's float32
+        vectorized = tf.cast(vectorized, tf.float32)
+        
+        # Step 3: Pad or truncate to match model input size if needed
+        current_size = vectorized.shape[1]
+        if current_size != model_input_size:
+            vectorized = pad_vector(vectorized, model_input_size)
+        
+        # Step 4: Predict probabilities using the loaded MLP
+        probs = loaded_model.predict(vectorized, verbose=0)[0]
+        
+        # Step 5: Convert probabilities to labels using threshold
+        categories = invert_multi_hot(probs, threshold)
+        
+        return categories
+        
+    except Exception as e:
+        st.error(f"❌ Prediction error: {e}")
+        import traceback
+        st.error(traceback.format_exc())
+        return []
+
+
 def get_input_hash(title, abstract):
-    """Create hash for input change detection"""
     return hashlib.md5(f"{title}|||{abstract}".encode()).hexdigest()
 
 # ============================================================================
 # UI HEADER
 # ============================================================================
 st.markdown("""
-<div style='text-align: center; padding: 2rem 0;'>
-    <h1 style='font-size: 3rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;'>
+<div style="text-align:center; padding:2rem 0;">
+    <h1 class="gradient-text">
         📚 Research Paper Assistant
     </h1>
-    <p style='font-size: 1.2rem; color: #4a5568;'>AI-Powered Paper Discovery & Classification</p>
+    <p style="font-size:1.2rem; color:#4a5568;">
+        AI-Powered Paper Discovery & Classification
+    </p>
 </div>
+
+<style>
+.gradient-text {
+    font-size: 3rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: #667eea; /* fallback */
+}
+</style>
 """, unsafe_allow_html=True)
+
 
 # ============================================================================
 # STATISTICS
@@ -311,7 +299,7 @@ with col1:
 with col2:
     st.markdown(f"""
     <div class='stats-card'>
-        <h2 style='color: #764ba2; margin: 0;'>{len(loaded_vocab)}</h2>
+        <h2 style='color: #764ba2; margin: 0;'>{len(label_vocab)}</h2>
         <p style='color: #718096; margin: 0;'>Subject Categories</p>
     </div>
     """, unsafe_allow_html=True)
@@ -368,6 +356,18 @@ with col2:
     analyze_button = st.button("🚀 Analyze", type="primary", use_container_width=True)
 
 # ============================================================================
+# SESSION STATE INITIALIZATION (REQUIRED)
+# ============================================================================
+if "last_input_hash" not in st.session_state:
+    st.session_state.last_input_hash = None
+
+if "recommendations" not in st.session_state:
+    st.session_state.recommendations = None
+
+if "predictions" not in st.session_state:
+    st.session_state.predictions = None
+
+# ============================================================================
 # PROCESSING LOGIC
 # ============================================================================
 if analyze_button:
@@ -405,16 +405,21 @@ if analyze_button:
             
             if papers and len(papers) > 0:
                 for i, paper in enumerate(papers, 1):
+                    # Create arXiv search URL
+                    import urllib.parse
+                    search_query = urllib.parse.quote(paper)
+                    arxiv_url = f"https://arxiv.org/search/?query={search_query}&searchtype=title"
+                    
                     st.markdown(f"""
                     <div class='recommendation-box'>
                         <strong style='color: #667eea; font-size: 1.2rem;'>#{i}</strong>
-                        <p style='margin: 5px 0 0 0; color: #2d3748;'>{paper}</p>
+                        <p style='margin: 5px 0 0 0; color: #2d3748;'>
+                            <a href="{arxiv_url}" target="_blank" style='text-decoration: none; color: #2d3748;'>
+                                {paper}
+                            </a>
+                        </p>
                     </div>
                     """, unsafe_allow_html=True)
-                
-                st.markdown("<br>", unsafe_allow_html=True)
-                papers_text = "\n\n".join([f"{i}. {p}" for i, p in enumerate(papers, 1)])
-                st.download_button("📥 Download", papers_text, "recommendations.txt", "text/plain")
             else:
                 st.info("💡 No recommendations found. Try different input.")
         
@@ -425,26 +430,28 @@ if analyze_button:
             
             if st.session_state.predictions is None or inputs_changed:
                 with st.spinner("🏷️ Predicting categories..."):
-                    st.session_state.predictions = predict_category(actual_abstract)
+                    st.session_state.predictions = predict_category(actual_abstract, threshold=0.3)
             
             categories = st.session_state.predictions
             
             if categories and len(categories) > 0:
-                html = "".join([f'<span class="category-badge">{cat}</span>' for cat in categories])
+                # Display categories with proper spacing
+                html = " ".join([f'<span class="category-badge">{cat}</span>' for cat in categories])
                 st.markdown(html, unsafe_allow_html=True)
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 st.info(f"""
                 💡 **Model Info**: Multi-Layer Perceptron trained on {len(sentences):,} ArXiv papers  
                 📊 **Categories Found**: {len(categories)}  
-                🎯 **Model Input Size**: {model_input_size:,} features
+                🎯 **Model Input Size**: {model_input_size:,} features  
+                🔧 **Threshold**: 0.3 (30% confidence minimum)
                 """)
             else:
                 st.warning("""
                 ⚠️ No categories predicted. Possible reasons:
                 - Abstract too short or unclear
-                - Model confidence below threshold (0.5)
-                - Try a more detailed abstract
+                - No categories exceeded the 30% confidence threshold
+                - Try a more detailed abstract or lower the threshold
                 """)
         elif actual_title and not actual_abstract:
             st.info("💡 **Tip**: Paste an abstract to get subject area predictions!")
@@ -461,7 +468,7 @@ with st.sidebar:
     - 🔍 Semantic paper search
     - 🏷️ Subject classification
     - 📊 {len(sentences):,} papers indexed
-    - 🎯 {len(loaded_vocab)} categories
+    - 🎯 {len(label_vocab)} categories
     """)
     
     st.markdown("---")
@@ -482,8 +489,9 @@ with st.sidebar:
     st.markdown(f"""
     - **Backend**: TensorFlow, PyTorch
     - **NLP**: Sentence Transformers
-    - **Model**: MLP (512→256→{len(loaded_vocab)})
-    - **Features**: {model_input_size:,} TF-IDF
+    - **Model**: MLP (512→256→{len(label_vocab)})
+    - **Features**: {model_input_size:,} multi-hot encoded
+    - **Vectorizer**: TextVectorization layer
     """)
 
 # ============================================================================
@@ -495,7 +503,7 @@ st.markdown(f"""
     <p><strong>Research Paper Assistant v2.0</strong></p>
     <p style='font-size: 0.9rem;'>
         Papers: {len(sentences):,} | 
-        Categories: {len(loaded_vocab)} | 
+        Categories: {len(label_vocab)} | 
         Model Input: {model_input_size:,} features
     </p>
     <p style='font-size: 0.85rem; margin-top: 10px;'>
