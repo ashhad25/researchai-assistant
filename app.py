@@ -14,6 +14,34 @@ os.environ["TF_NUM_INTRAOP_THREADS"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
+import zipfile
+import requests
+
+MODEL_ZIP_URL = (
+    "https://github.com/ashhad25/researchai-assistant/releases/download/v1.0/models.zip"
+)
+
+MODEL_DIR = "models"
+ZIP_PATH = "models.zip"
+
+def download_and_extract_models():
+    if os.path.exists(MODEL_DIR):
+        return  # already downloaded
+
+    with open(ZIP_PATH, "wb") as f:
+        response = requests.get(MODEL_ZIP_URL, stream=True)
+        response.raise_for_status()
+        for chunk in response.iter_content(chunk_size=1024 * 1024):
+            f.write(chunk)
+
+    with zipfile.ZipFile(ZIP_PATH, "r") as zip_ref:
+        zip_ref.extractall(MODEL_DIR)
+
+    os.remove(ZIP_PATH)
+
+download_and_extract_models()
+
+
 # =================== STANDARD IMPORTS ===================
 import streamlit as st
 import pickle
@@ -420,6 +448,10 @@ if analyze_button:
                         </p>
                     </div>
                     """, unsafe_allow_html=True)
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                papers_text = "\n\n".join([f"{i}. {p}" for i, p in enumerate(papers, 1)])
+                st.download_button("📥 Download", papers_text, "recommendations.txt", "text/plain")
             else:
                 st.info("💡 No recommendations found. Try different input.")
         
