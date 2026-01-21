@@ -1,11 +1,12 @@
 streamlit
 
-# PyTorch stack (Sentence Transformers)
+# PyTorch stack
 torch==2.0.1
 transformers==4.30.2
 sentence-transformers==2.2.2
+huggingface_hub==0.14.1
 
-# TensorFlow stack (DO NOT add keras separately)
+# TensorFlow stack
 tensorflow==2.15.0
 
 # Utilities
